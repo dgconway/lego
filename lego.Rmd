@@ -8,6 +8,8 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(nnet)
+library(MASS)
 inventories = read_csv("inventories.csv")
 inventory_parts = read_csv("inventory_parts.csv")
 sets = read_csv("sets.csv")
@@ -140,7 +142,209 @@ ggplot(black, aes(x=year, y=num_times_appears/total_num_bricks)) +
 num_colors = colors_by_year_temp |> group_by(year) |> 
   summarize("num_colors"=n_distinct(name.y))
 
-ggplot(num_colors, aes(x=year, y=num_colors)) + geom_point() + ggtitle("Number of distinct colors peaked around 2005")
+ggplot(num_colors, aes(x=year, y=num_colors)) + geom_point() + ggtitle("Number of distinct colors peaked around 2005") + theme_minimal()
+
+
+```
+
+
+
+```{r}
+
+count_num_per_theme = join_set_themes |> count(name.y) |> slice_max(order_by=n, n=10)
+
+ten_most_popular = join_set_themes |> inner_join(count_num_per_theme, by=c("name.y"="name.y"))
+
+
+join_for_top_10 = ten_most_popular |> 
+  left_join(inventories, by=c("set_num"="set_num")) |> 
+  left_join(inventory_parts, by=c("id"="inventory_id")) |> 
+  left_join(colors, by=c("color_id"="id"))
+
+intermediate = join_for_top_10 |> 
+  group_by(set_num, rgb, name.y) |> 
+  summarize("n"=n()) |> 
+  ungroup() |> 
+  group_by(set_num, name.y) |> 
+  mutate("total_num_pieces"=n(),
+         "pct_pieces"=n/total_num_pieces) |> 
+  dplyr::select(c("pct_pieces", "rgb", "set_num", "name.y")) |> 
+  ungroup()
+
+counting_colors = intermediate |> 
+  pivot_wider(names_from=rgb, values_from=pct_pieces)
+
+counting_colors[is.na(counting_colors)] <- 0
+
+counting_colors = counting_colors |> dplyr::select(-c("NA"))
+
+
+g = capture.output(base_AIC = multinom(name.y ~ 1, data = counting_colors)$AIC)
+
+
+get_best_color = function(useful_colors, how_useful) {
+  df_useful_colors = data.frame(
+    "colors"=useful_colors,
+    "how_useful"=how_useful
+  )
+  
+  most_useful = df_useful_colors |> arrange(how_useful) |> filter(row_number()==1)
+  
+  
+  base_AIC = most_useful$how_useful
+  best_color = most_useful$colors
+  return(list(base_AIC, best_color))
+}
+
+next_step_forward_selection = function(colors, base_AIC) {
+  useful_colors = c()
+  how_useful = c()
+  for(i in colnames(counting_colors)) {
+    if(i!="name.y" & i!="name.x") {
+      formula_str = paste0("name.y ~  `", 
+                           paste(colors, collapse="` + `"),
+                           "` + `", 
+                           i, 
+                           "`")
+      actual_formula = as.formula(formula_str)
+      model = multinom(actual_formula, data = counting_colors)
+      if (model$AIC < base_AIC) {
+        useful_colors = c(useful_colors, i)
+        how_useful = c(how_useful, model$AIC)
+      }
+    }
+  }
+  return(list(useful_colors, how_useful))
+}
+
+
+
+
+
+```
+
+
+
+
+
+```{r}
+
+num_pieces = sets |> dplyr::select(c("num_parts", "set_num"))
+
+add_n_pieces = counting_colors |> 
+  left_join(num_pieces, by=c("set_num"="set_num")) |> 
+  dplyr::select(-c("set_num", "NA"))
+  
+# adapted from ChatGPT
+set.seed(42)  # For reproducibility
+random_order <- sample(nrow(add_n_pieces))  # Create a random permutation of row indices
+random_reordered_df <- add_n_pieces[random_order, ]
+
+reorder = sample(add_n_pieces)
+
+upper_lim = as.integer(nrow(add_n_pieces) * 0.8)
+plus_one = upper_lim+1
+
+train = random_reordered_df[0:upper_lim, ]
+test = random_reordered_df[upper_lim:nrow(add_n_pieces), ]
+
+g = capture.output(base_model <- multinom(name.y ~ 1, data = train))
+
+g = capture.output(full_model <- multinom(name.y ~ ., data = train))
+
+# adapted from ChatGPT
+g = capture.output(forward_selected <- stepAIC(base_model, list(lower=base_model, upper=full_model), direction = "forward", trace = FALSE))
+
+rm(g)
+
+
+predictions = test |> mutate(
+  "predicted"=predict(forward_selected, newdata=test)
+)
+
+accuracy = (predictions$predicted == predictions$name.y) |> sum() / nrow(predictions)
+
+forward_summary = summary(forward_selected)
+
+coef = forward_summary$coefficients
+
+coef_df = coef |> as.data.frame()
+
+
+aics = c(base_model$AIC)
+
+names = c()
+
+for (i in colnames(coef_df)) {
+  if (i!="(Intercept)") {
+    names = c(names, i)
+    formula_str = paste0("name.y ~  ", 
+                           paste0(names, collapse=" + "))
+    actual_formula = as.formula(formula_str)
+    g = capture.output(model = multinom(actual_formula, data = train))
+    aics = c(aics, model$AIC)
+  }
+}
+
+lag_aics = aics[2:length(aics)]
+
+aics = aics[1:length(aics)-1]
+
+diff = aics - lag_aics
+
+to_plot = data.frame(
+  "difference"=diff,
+  "cols"=tolower(colnames(coef_df)[2:length(colnames(coef_df))])
+)
+
+to_plot = to_plot |> mutate(
+  "cols"=ifelse(cols=="num_parts", "800080", cols)
+)
+
+to_plot = to_plot |> 
+  mutate("index"=row_number(),
+         "cols"=paste0("#", cols))
+
+
+to_plot = to_plot |> 
+  mutate(cols=str_remove_all(cols, "`"))
+
+ggplot(to_plot, aes(x=index, y=difference, fill=cols, color="black")) + 
+  geom_col() + 
+  theme_minimal() + 
+  scale_fill_identity() + 
+  scale_color_identity() + 
+  xlab("Order added to forward selection") + 
+  ylab("Decrease in AIC") + 
+  ggtitle("Pale tan, green, & number of bricks are the best predictors") + 
+  annotate("text", x = 6.3, y = 510, label = "Number of bricks", color = "#800080", size = 4) + 
+  labs(
+    caption=str_wrap("The color of each bar is the color that we use to predict which set the LEGOs came from. These colors are numeric columns, and are the percent of pieces in this set that have this color, except for purple (the second bar), which is the number of bricks in this set. Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    panel.grid.major.x = element_blank(),  
+    panel.grid.minor.x = element_blank(),
+    plot.caption = element_text(hjust = 0)
+  )
+
+
+
+```
+
+
+
+
+
+```{r}
+
+star_wars = join_set_themes |> filter(name.y=="Star Wars") |> count(year)
+
+ggplot(star_wars, aes(x=year, y=n)) + 
+  geom_col(fill="darkblue") + 
+  theme_minimal() + 
+  xlab("Year") + 
+  ylab("Number of sets") + 
+  ggtitle("Number of Star Wars Lego sets peaked in 2014")
 
 
 ```
