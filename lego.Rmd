@@ -1,5 +1,5 @@
 ---
-title: "lego"
+title: "Lego"
 author: "Donald Conway"
 date: "`r Sys.Date()`"
 output: html_document
@@ -29,12 +29,33 @@ avg_num_parts = sets |>
   group_by(year) |> 
   summarize("avg_num_parts"=mean(num_parts))
 
-ggplot(sets, aes(x=year, y=num_parts)) + geom_point()
+ggplot(sets, aes(x=year, y=num_parts)) + 
+  geom_point(alpha=0.1) + 
+  theme_minimal() + 
+  xlab("") + 
+  ylab("Number of parts") + 
+  ggtitle("Max number of parts for a lego set in a given year increased") + 
+  labs(
+    caption=str_wrap("Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    plot.caption = element_text(hjust = 0)
+  ) 
 
 ggplot(avg_num_parts, aes(x=year, y=avg_num_parts)) + 
   geom_point() + 
   geom_smooth(method="lm", se=F) + 
-  theme_minimal()
+  theme_minimal() + 
+  ylab("Average number of parts") + 
+  xlab("") + 
+  ggtitle("Recent lego sets have, on average, more pieces") + labs(
+    caption=str_wrap("Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    plot.caption = element_text(hjust = 0)
+  ) 
+
+
 ```
 
 
@@ -43,26 +64,6 @@ hate_joins = left_join(inventories, sets, by=c("set_num"="set_num")) |>
   left_join(inventory_parts, by=c("id"="inventory_id")) |> 
   left_join(colors, by=c("color_id"="id"))
 
-
-num_times_each_colors_appears = hate_joins |> 
-  group_by(year, rgb) |> 
-  summarize("num_times_appears"=n()) |> 
-  ungroup() |>
-  filter(!is.na(rgb))
-
-set.seed(42)
-colors_by_year = num_times_each_colors_appears[sample(nrow(num_times_each_colors_appears)), ]
-
-colors_by_year = colors_by_year |> 
-  group_by(year) |> 
-  summarize("row_num"=row_number(), 
-            "num_times_appears"=max(num_times_appears),
-            "color"=rgb) |> 
-  filter(row_num==1)
-
-
-ggplot(colors_by_year, aes(x=year, y=num_times_appears, fill=color)) + geom_col()
-ggplot(colors_by_year, aes(x=year, y=row_num, fill=color)) + geom_col()
 
 ```
 
@@ -80,7 +81,13 @@ ggplot(num_sets_per_year, aes(x=year, y=num_distinct_sets)) +
   theme_minimal() + 
   xlab("") +
   ylab("Number of unique sets") + 
-  ggtitle("Number of unique sets has increased over time")
+  ggtitle("Number of unique sets has increased over time") + 
+  labs(
+    caption=str_wrap("Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    plot.caption = element_text(hjust = 0)
+  ) 
   
 
 ```
@@ -119,7 +126,14 @@ ggplot(colors_by_year, aes(x=year, y=num_times_appears/total_num_bricks, fill=co
   scale_color_identity() + 
   xlab("") + 
   ylab("Percent of bricks") + 
-  ggtitle("Most common brick color has transitioned from white to red to black")
+  ggtitle("Most common brick color transitioned from white to red to black") + 
+  scale_y_continuous(labels = scales::percent) + 
+  labs(
+    caption=str_wrap("Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    plot.caption = element_text(hjust = 0)
+  ) 
 
 
 
@@ -128,7 +142,20 @@ ggplot(colors_by_year, aes(x=year, y=num_times_appears/total_num_bricks, fill=co
 ```{r, warning=F, message=F}
 red = colors_by_year_temp |> filter(name.y=="Red")
 
-ggplot(red, aes(x=year, y=num_times_appears/total_num_bricks)) + geom_point(color="red") + ggtitle("Red has gotten less popular over time")
+# how to make the y-axis percent and how to make the y-axis include 0 adapted fro chatGPT
+ggplot(red, aes(x=year, y=num_times_appears/total_num_bricks)) +
+  geom_point(color="red") + 
+  theme_minimal() +
+  ggtitle("Red has gotten less popular over time") + 
+  xlab("") + 
+  ylab("Percent of bricks") + 
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.4)) + 
+  labs(
+    caption=str_wrap("Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    plot.caption = element_text(hjust = 0)
+  ) 
 
 ```
 
@@ -138,7 +165,17 @@ black = colors_by_year_temp |> filter(name.y=="Black")
 
 ggplot(black, aes(x=year, y=num_times_appears/total_num_bricks)) + 
   geom_point() + 
-  ggtitle("Black experienced the most popularity 1980-2000")
+  theme_minimal() + 
+  ggtitle("Black experienced the most popularity 1980-2000") + 
+  xlab("") + 
+  ylab("Percent of bricks") + 
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.3)) + 
+  labs(
+    caption=str_wrap("Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    plot.caption = element_text(hjust = 0)
+  ) 
 
 ```
 
@@ -148,7 +185,13 @@ ggplot(black, aes(x=year, y=num_times_appears/total_num_bricks)) +
 num_colors = colors_by_year_temp |> group_by(year) |> 
   summarize("num_colors"=n_distinct(name.y))
 
-ggplot(num_colors, aes(x=year, y=num_colors)) + geom_point() + ggtitle("Number of distinct colors peaked around 2005") + theme_minimal()
+ggplot(num_colors, aes(x=year, y=num_colors)) + geom_point() + ggtitle("Number of distinct colors peaked around 2005") + theme_minimal() + 
+  labs(
+    caption=str_wrap("Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    plot.caption = element_text(hjust = 0)
+  ) 
 
 
 ```
@@ -324,8 +367,9 @@ ggplot(to_plot, aes(x=index, y=difference, fill=cols, color="black")) +
   scale_color_identity() + 
   xlab("Order added to forward selection") + 
   ylab("Decrease in AIC") + 
-  ggtitle("Pale tan, green, & number of bricks are the best predictors") + 
-  annotate("text", x = 6.3, y = 510, label = "Number of bricks", color = "#800080", size = 4) + 
+  ggtitle("Pale tan, green, & unknown colors are the best predictors of theme") + 
+  annotate("text", x = 11.5, y = 340, label = "Number of bricks", color = "#800080", size = 4) + 
+  annotate("text", x = 6, y = 650, label = "Unknown color", color = "#ffA500", size = 4) + 
   labs(
     caption=str_wrap("The color of each bar is the color that we use to predict which set the LEGOs came from. These colors are numeric columns, and are the percent of pieces in this set that have this color, except for purple (the second bar), which is the number of bricks in this set. Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
   ) + 
@@ -419,7 +463,7 @@ ggplot(star_wars, aes(x=year, y=n)) +
 
 heatmap_df = predictions |> count(predicted, name.y) |> ungroup() |> rename('Number of Sets'=n)
 
-
+# how to rotate x-axis lablels adapted from ChatGPT
 ggplot(heatmap_df, aes(x=fct_rev(predicted), y=fct_rev(name.y), fill=`Number of Sets`)) + 
   geom_tile() + 
   theme_minimal() + 
@@ -433,9 +477,9 @@ ggplot(heatmap_df, aes(x=fct_rev(predicted), y=fct_rev(name.y), fill=`Number of 
     panel.grid.minor.x = element_blank(),
     panel.grid.major.y = element_blank(),  
     panel.grid.minor.y = element_blank(),
-    plot.caption = element_text(hjust = 0)
+    plot.caption = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 45, hjust = 1)
   )
-
 
 ```
 
