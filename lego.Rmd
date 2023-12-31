@@ -6,10 +6,12 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = F)
 library(tidyverse)
 library(nnet)
 library(MASS)
+library(pheatmap)
+
 inventories = read_csv("inventories.csv")
 inventory_parts = read_csv("inventory_parts.csv")
 sets = read_csv("sets.csv")
@@ -21,7 +23,7 @@ part_categories = read_csv("part_categories.csv")
 
 ```
 
-```{r}
+```{r, warning=F, message=F}
 
 avg_num_parts = sets |> 
   group_by(year) |> 
@@ -36,7 +38,7 @@ ggplot(avg_num_parts, aes(x=year, y=avg_num_parts)) +
 ```
 
 
-```{r}
+```{r, warning=F, message=F}
 hate_joins = left_join(inventories, sets, by=c("set_num"="set_num")) |> 
   left_join(inventory_parts, by=c("id"="inventory_id")) |> 
   left_join(colors, by=c("color_id"="id"))
@@ -65,27 +67,27 @@ ggplot(colors_by_year, aes(x=year, y=row_num, fill=color)) + geom_col()
 ```
 
 
-```{r}
+```{r, warning=F, message=F}
 
 join_set_themes = inner_join(sets, themes, by=c("theme_id"="id"))
-
-
-avg_num_parts_themes = join_set_themes |> group_by(name.y) |> 
-  summarize("avg_num_parts"=mean(num_parts))
-
-ggplot(avg_num_parts_themes, aes(x=avg_num_parts, y=name.y)) + geom_col()
 
 
 num_sets_per_year = join_set_themes |> group_by(year) |> 
   summarize("num_distinct_sets"=n_distinct(name.y))
 
-ggplot(num_sets_per_year, aes(x=year, y=num_distinct_sets)) + geom_col()
+ggplot(num_sets_per_year, aes(x=year, y=num_distinct_sets)) + 
+  geom_col(fill="black") + 
+  theme_minimal() + 
+  xlab("") +
+  ylab("Number of unique sets") + 
+  ggtitle("Number of unique sets has increased over time")
+  
 
 ```
 
 
 
-```{r}
+```{r, warning=F, message=F}
 num_times_each_colors_appears = hate_joins |> 
   group_by(year) |> 
   mutate("total_num_bricks"=n()) |> 
@@ -110,16 +112,20 @@ colors_by_year$color = colors_by_year$color |> tolower()
 
 colors_by_year$color = colors_by_year$color |> str_replace("trans-clear", "lightblue")
 
-ggplot(colors_by_year, aes(x=year, y=num_times_appears/total_num_bricks, fill=color)) + 
+ggplot(colors_by_year, aes(x=year, y=num_times_appears/total_num_bricks, fill=color, color="darkgrey")) + 
   geom_col() + 
   scale_fill_identity() + 
-  theme_minimal()
+  theme_minimal() + 
+  scale_color_identity() + 
+  xlab("") + 
+  ylab("Percent of bricks") + 
+  ggtitle("Most common brick color has transitioned from white to red to black")
 
 
 
 ```
 
-```{r}
+```{r, warning=F, message=F}
 red = colors_by_year_temp |> filter(name.y=="Red")
 
 ggplot(red, aes(x=year, y=num_times_appears/total_num_bricks)) + geom_point(color="red") + ggtitle("Red has gotten less popular over time")
@@ -127,7 +133,7 @@ ggplot(red, aes(x=year, y=num_times_appears/total_num_bricks)) + geom_point(colo
 ```
 
 
-```{r}
+```{r, warning=F, message=F}
 black = colors_by_year_temp |> filter(name.y=="Black")
 
 ggplot(black, aes(x=year, y=num_times_appears/total_num_bricks)) + 
@@ -137,7 +143,7 @@ ggplot(black, aes(x=year, y=num_times_appears/total_num_bricks)) +
 ```
 
 
-```{r}
+```{r, warning=F, message=F}
 
 num_colors = colors_by_year_temp |> group_by(year) |> 
   summarize("num_colors"=n_distinct(name.y))
@@ -149,7 +155,7 @@ ggplot(num_colors, aes(x=year, y=num_colors)) + geom_point() + ggtitle("Number o
 
 
 
-```{r}
+```{r, warning=F, message=F}
 
 count_num_per_theme = join_set_themes |> count(name.y) |> slice_max(order_by=n, n=10)
 
@@ -175,9 +181,6 @@ counting_colors = intermediate |>
   pivot_wider(names_from=rgb, values_from=pct_pieces)
 
 counting_colors[is.na(counting_colors)] <- 0
-
-counting_colors = counting_colors |> dplyr::select(-c("NA"))
-
 
 g = capture.output(base_AIC = multinom(name.y ~ 1, data = counting_colors)$AIC)
 
@@ -227,13 +230,13 @@ next_step_forward_selection = function(colors, base_AIC) {
 
 
 
-```{r}
+```{r, warning=F, message=F}
 
 num_pieces = sets |> dplyr::select(c("num_parts", "set_num"))
 
 add_n_pieces = counting_colors |> 
   left_join(num_pieces, by=c("set_num"="set_num")) |> 
-  dplyr::select(-c("set_num", "NA"))
+  dplyr::select(-c("set_num"))
   
 # adapted from ChatGPT
 set.seed(42)  # For reproducibility
@@ -248,14 +251,10 @@ plus_one = upper_lim+1
 train = random_reordered_df[0:upper_lim, ]
 test = random_reordered_df[upper_lim:nrow(add_n_pieces), ]
 
-g = capture.output(base_model <- multinom(name.y ~ 1, data = train))
 
-g = capture.output(full_model <- multinom(name.y ~ ., data = train))
-
-# adapted from ChatGPT
-g = capture.output(forward_selected <- stepAIC(base_model, list(lower=base_model, upper=full_model), direction = "forward", trace = FALSE))
-
-rm(g)
+base_model = readRDS("base_model.rds")
+full_model = readRDS("full_model.rds")
+forward_selected = readRDS("multinom_classification.rds")
 
 
 predictions = test |> mutate(
@@ -275,16 +274,21 @@ aics = c(base_model$AIC)
 
 names = c()
 
+coef_df = coef_df |> rename("no_color"="`NA`")
+train = train |> rename("no_color"="NA")
+
 for (i in colnames(coef_df)) {
   if (i!="(Intercept)") {
     names = c(names, i)
     formula_str = paste0("name.y ~  ", 
                            paste0(names, collapse=" + "))
     actual_formula = as.formula(formula_str)
-    g = capture.output(model = multinom(actual_formula, data = train))
+    g = capture.output(model <- multinom(actual_formula, data = train))
     aics = c(aics, model$AIC)
   }
 }
+
+
 
 lag_aics = aics[2:length(aics)]
 
@@ -299,6 +303,10 @@ to_plot = data.frame(
 
 to_plot = to_plot |> mutate(
   "cols"=ifelse(cols=="num_parts", "800080", cols)
+)
+
+to_plot = to_plot |> mutate(
+  "cols"=ifelse(cols=="no_color", "FFA500", cols)
 )
 
 to_plot = to_plot |> 
@@ -332,10 +340,59 @@ ggplot(to_plot, aes(x=index, y=difference, fill=cols, color="black")) +
 ```
 
 
+```{r, warning=F, message=F}
+
+# using row.names was inspired by ChatGPT
+ggplot(coef_df, aes(x=row.names(coef_df), y=F6D7B3, color="black", fill="#f6d7b3")) + 
+  geom_col() + 
+  scale_fill_identity() + 
+  scale_color_identity() + 
+  theme_minimal() + 
+  ggtitle("Sets with mostly f6d7b3-colored bricks are likely Star Wars, Friends, or Gear") + 
+  xlab("") + 
+  ylab("Impact on model") + 
+  labs(
+    caption=str_wrap("Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    panel.grid.major.x = element_blank(),  
+    panel.grid.minor.x = element_blank(),
+    plot.caption = element_text(hjust = 0)
+  )
+
+
+```
 
 
 
-```{r}
+```{r, warning=F, message=F}
+
+avg_num_bricks = count_num_per_theme |> 
+  left_join(join_set_themes, by=c("name.y"="name.y")) |> 
+  group_by(name.y) |> 
+  summarize("avg_pieces"=mean(num_parts))
+
+ggplot(avg_num_bricks, aes(y=fct_rev(name.y), x=avg_pieces)) + 
+  geom_col(fill="blue") + 
+  theme_minimal() + 
+  xlab("Average number of pieces") + 
+  ylab("") + 
+  ggtitle("Basic Set has the most pieces on average") + 
+  labs(
+    caption=str_wrap("Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    panel.grid.major.y = element_blank(),  
+    panel.grid.minor.y = element_blank(),
+    plot.caption = element_text(hjust = 0)
+  )
+
+    
+
+```
+
+
+```{r, warning=F, message=F}
 
 star_wars = join_set_themes |> filter(name.y=="Star Wars") |> count(year)
 
@@ -344,7 +401,40 @@ ggplot(star_wars, aes(x=year, y=n)) +
   theme_minimal() + 
   xlab("Year") + 
   ylab("Number of sets") + 
-  ggtitle("Number of Star Wars Lego sets peaked in 2014")
+  ggtitle("Number of Star Wars Lego sets peaked in 2014") +labs(
+    caption=str_wrap("Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database. ", width=130)
+  ) + 
+  theme(
+    plot.caption = element_text(hjust = 0)
+  ) 
+
+
+```
+
+
+
+
+
+```{r, warning=F, message=F}
+
+heatmap_df = predictions |> count(predicted, name.y) |> ungroup() |> rename('Number of Sets'=n)
+
+
+ggplot(heatmap_df, aes(x=fct_rev(predicted), y=fct_rev(name.y), fill=`Number of Sets`)) + 
+  geom_tile() + 
+  theme_minimal() + 
+  scale_fill_gradient(low = "white", high = "purple4") + 
+  xlab("Predicted") + 
+  ylab("Actual") + 
+  ggtitle("Confusion matrix for predicted themes") +
+  labs(caption=str_wrap("Out of the 10 themes with the most sets, we can correctly predict the set ~60% of the time. Data from Rachael Tatman's publically available Kaggle dataset, which comes from the Rebrickable database.", width=130)) + 
+  theme(
+    panel.grid.major.x = element_blank(),  
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank(),  
+    panel.grid.minor.y = element_blank(),
+    plot.caption = element_text(hjust = 0)
+  )
 
 
 ```
